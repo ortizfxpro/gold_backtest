@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
 
-import ProviderTable from "@/components/trading/ProviderTable";
-
 import PerformanceChart from "@/components/trading/PerformanceChart";
 import * as XLSX from "xlsx";
 
@@ -153,20 +151,6 @@ text-center
       </div>
 
       <PerformanceChart />
-
-      <div>
-        <h2
-          className="
-mb-4
-text-xl
-font-semibold
-"
-        >
-          Provider Ranking
-        </h2>
-
-        <ProviderTable />
-      </div>
     </div>
   );
 }
