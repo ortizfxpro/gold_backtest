@@ -1,0 +1,37 @@
+export const monthlyPerformance=[
+ {
+  month:"March",
+  return:8.2,
+  pf:1.62,
+  rf:2.8,
+  dd:-7.1
+ },
+ {
+  month:"April",
+  return:10.5,
+  pf:1.74,
+  rf:3.5,
+  dd:-6.2
+ },
+ {
+  month:"May",
+  return:6.8,
+  pf:1.51,
+  rf:2.4,
+  dd:-8.5
+ },
+ {
+  month:"June",
+  return:12.2,
+  pf:1.89,
+  rf:4.1,
+  dd:-5.8
+ },
+ {
+  month:"July",
+  return:9.4,
+  pf:1.76,
+  rf:3.7,
+  dd:-6.1
+ }
+];
