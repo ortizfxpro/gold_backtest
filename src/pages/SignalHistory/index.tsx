@@ -6,9 +6,14 @@ import * as XLSX from "xlsx";
 export default function SignalHistory() {
   const [signals, setSignals] = useState<any[]>([]);
   const [resultFilter, setResultFilter] = useState("All");
+  const [weeklyFilter, setWeeklyFilter] = useState("All");
 
   const filteredSignals = signals.filter((signal) => {
     if (resultFilter !== "All" && signal.Result !== resultFilter) {
+      return false;
+    }
+
+    if (weeklyFilter !== "All" && signal.Weekly !== weeklyFilter) {
       return false;
     }
 
@@ -73,19 +78,6 @@ export default function SignalHistory() {
         setSignals(data);
 
         // Load Result sheet for performance data
-        const resultSheet = workbook.Sheets["Result"];
-
-        const resultData = {
-          totalSignals: resultSheet["E7"]?.v || 0,
-          profitMax: resultSheet["F7"]?.v || 0,
-          lossMax: resultSheet["G7"]?.v || 0,
-          result: resultSheet["H7"]?.v || 0,
-          lossStreak: resultSheet["I7"]?.v || 0,
-        };
-
-        console.log("Provider Result:", resultData);
-
-        setPerformance(resultData);
       })
       .catch((error) => {
         console.error("Excel loading error:", error);
@@ -96,10 +88,10 @@ export default function SignalHistory() {
       <div className="flex gap-4">
         <select
           className="
-      border
-      rounded
-      px-3
-      py-2
+            border
+            rounded
+            px-3
+            py-2
     "
           value={resultFilter}
           onChange={(e) => setResultFilter(e.target.value)}
@@ -110,7 +102,28 @@ export default function SignalHistory() {
 
           <option value="Loss">Loss</option>
 
-          <option value="No take place">No Take Place</option>
+          <option value="No take place">No take place</option>
+        </select>
+
+        <select
+          className="
+    border
+    rounded
+    px-3
+    py-2
+  "
+          value={weeklyFilter}
+          onChange={(e) => setWeeklyFilter(e.target.value)}
+        >
+          <option value="All">All Weeks</option>
+
+          <option value="July-1st">July-1st</option>
+
+          <option value="July-2nd">July-2nd</option>
+
+          <option value="July-3rd">July-3rd</option>
+
+          <option value="July-4th">July-4th</option>
         </select>
       </div>
       <h1 className="text-2xl font-bold">Signal History</h1>

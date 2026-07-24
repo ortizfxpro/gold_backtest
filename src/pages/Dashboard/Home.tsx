@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
 
-import KPICard from "@/components/trading/KPICard";
-
 import ProviderTable from "@/components/trading/ProviderTable";
 
 import PerformanceChart from "@/components/trading/PerformanceChart";
