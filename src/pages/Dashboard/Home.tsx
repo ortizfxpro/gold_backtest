@@ -14,7 +14,7 @@ export default function Dashboard() {
   });
 
   const [selectedMonth, setSelectedMonth] = useState("July");
-  const months = ["All", "July", "June"];
+  const months = ["All", "June", "July"];
 
   useEffect(() => {
     // Do not search Excel for "All"
@@ -72,8 +72,6 @@ export default function Dashboard() {
           result: rows[targetRow][5],
           lossStreak: rows[targetRow][6],
         };
-
-        console.log("Loaded:", selectedMonth, resultData);
 
         setPerformance(resultData);
       })
