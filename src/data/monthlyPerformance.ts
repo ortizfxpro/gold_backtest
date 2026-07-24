@@ -1,17 +1,29 @@
-export const monthlyPerformance=[
- 
- {
-  month:"June",
-  return:9.654,
-  pf:1.89,
-  rf:4.1,
-  dd:-5.8
- },
- {
-  month:"July",
-  return:24.4958,
-  pf:1.76,
-  rf:3.7,
-  dd:-6.1
- }
+export const monthlyPerformance = [
+  {
+    month: "June",
+    weeks: [
+      {
+        week: "Week 5",
+        return: 9.654,
+      },
+    ],
+  },
+
+  {
+    month: "July",
+    weeks: [
+      {
+        week: "Week 1",
+        return: 3.082,
+      },
+      {
+        week: "Week 2",
+        return: 14.648,
+      },
+      {
+        week: "Week 3",
+        return: 5.67,
+      },
+    ],
+  },
 ];

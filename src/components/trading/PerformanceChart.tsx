@@ -2,7 +2,26 @@ import Chart from "react-apexcharts";
 import type { ApexOptions } from "apexcharts";
 import { monthlyPerformance } from "@/data/monthlyPerformance";
 
-export default function PerformanceChart() {
+export default function PerformanceChart({
+  selectedMonth,
+}: {
+  selectedMonth: string;
+}) {
+  const selectedData = monthlyPerformance.find(
+    (x) => x.month === selectedMonth,
+  );
+
+  const chartData =
+    selectedMonth === "All"
+      ? monthlyPerformance.map((x) => ({
+          label: x.month,
+          value: x.weeks.reduce((sum, w) => sum + w.return, 0),
+        }))
+      : selectedData?.weeks.map((w) => ({
+          label: w.week,
+          value: w.return,
+        })) || [];
+
   const options: ApexOptions = {
     chart: {
       type: "bar",
@@ -16,7 +35,7 @@ export default function PerformanceChart() {
         borderRadius: 5,
         columnWidth: "45%",
         dataLabels: {
-          position: "top",
+          position: "center",
         },
       },
     },
@@ -24,9 +43,10 @@ export default function PerformanceChart() {
     dataLabels: {
       enabled: true,
       formatter: (value) => {
-        return `${value > 0 ? "+" : ""}${value}%`;
+        const num = Number(value);
+
+        return `${num > 0 ? "+" : ""}${num}%`;
       },
-      position: "center",
       offsetY: 0,
       style: {
         fontSize: "18px",
@@ -36,7 +56,7 @@ export default function PerformanceChart() {
     },
 
     xaxis: {
-      categories: monthlyPerformance.map((x) => x.month),
+      categories: chartData.map((x) => x.label),
     },
 
     yaxis: {
@@ -49,7 +69,7 @@ export default function PerformanceChart() {
   const series = [
     {
       name: "Return %",
-      data: monthlyPerformance.map((x) => x.return),
+      data: chartData.map((x) => x.value),
     },
   ];
 
@@ -63,7 +83,11 @@ export default function PerformanceChart() {
       dark:bg-gray-800
       "
     >
-      <h3 className="mb-4 font-semibold">Monthly Return</h3>
+      <h3 className="mb-4 font-semibold">
+        {selectedMonth === "All"
+          ? "Monthly Return"
+          : `${selectedMonth} Weekly Return`}
+      </h3>
 
       <Chart options={options} series={series} type="bar" height={300} />
     </div>

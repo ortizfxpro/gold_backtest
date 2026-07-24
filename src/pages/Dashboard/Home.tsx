@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import PerformanceChart from "@/components/trading/PerformanceChart";
+
 import * as XLSX from "xlsx";
 
 export default function Dashboard() {
@@ -11,146 +12,144 @@ export default function Dashboard() {
     result: 0,
     lossStreak: 0,
   });
+
+  const [selectedMonth, setSelectedMonth] = useState("July");
+  const months = ["All", "July", "June"];
+
   useEffect(() => {
+    // Do not search Excel for "All"
+    if (selectedMonth === "All") {
+      return;
+    }
+
     fetch("/signal_history_july.xlsx?t=" + Date.now())
       .then((res) => res.arrayBuffer())
       .then((buffer) => {
         const workbook = XLSX.read(buffer);
 
-        console.log("Sheets:", workbook.SheetNames);
-
         const resultSheet = workbook.Sheets["Result"];
 
-        console.log("Result sheet:", resultSheet);
+        if (!resultSheet) {
+          console.error("Result sheet not found");
+          return;
+        }
+
+        const rows = XLSX.utils.sheet_to_json<any[]>(resultSheet, {
+          header: 1,
+          defval: "",
+        });
+
+        console.log("Excel rows:", rows);
+
+        let targetRow = -1;
+
+        let currentMonth = "";
+
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i];
+
+          // Save month when column A has value
+          if (row[0]) {
+            currentMonth = row[0];
+          }
+
+          // Find PnL (pips) row
+          if (currentMonth === selectedMonth && row[1] === "PnL (pips)") {
+            targetRow = i;
+            break;
+          }
+        }
+
+        if (targetRow === -1) {
+          console.error("Month data not found:", selectedMonth);
+          return;
+        }
 
         const resultData = {
-          totalSignals: resultSheet["E7"]?.v || 0,
-          profitMax: resultSheet["F7"]?.v || 0,
-          lossMax: resultSheet["G7"]?.v || 0,
-          result: resultSheet["H7"]?.v || 0,
-          lossStreak: resultSheet["I7"]?.v || 0,
+          totalSignals: rows[targetRow][2],
+          profitMax: rows[targetRow][3],
+          lossMax: rows[targetRow][4],
+          result: rows[targetRow][5],
+          lossStreak: rows[targetRow][6],
         };
 
-        console.log("Performance data:", resultData);
+        console.log("Loaded:", selectedMonth, resultData);
 
         setPerformance(resultData);
       })
       .catch((error) => {
         console.error("Excel loading error:", error);
       });
-  }, []);
+  }, [selectedMonth]);
 
   return (
     <div className="space-y-6">
-      <h1
-        className="
-text-2xl
-font-bold
-"
-      >
-        Trading System Dashboard
-      </h1>
+      <h1 className="text-2xl font-bold">Trading System Dashboard</h1>
 
       <div
         className="
-grid
-grid-cols-1
-gap-5
-md:grid-cols-5
-"
+        grid
+        grid-cols-1
+        gap-5
+        md:grid-cols-5
+      "
       >
-        <div
-          className="
-rounded-xl
-border
-p-5
-bg-white
-dark:bg-gray-800
-text-center
+        <KpiCard title="Total Signals" value={performance.totalSignals} />
 
-"
-        >
-          <p className="text-gray-500">Total Signals</p>
+        <KpiCard title="Profit (Max)" value={`${performance.profitMax} pips`} />
 
-          <h2 className="text-3xl font-bold text-gray-900 dark:text-white">
-            {performance.totalSignals}
-          </h2>
-        </div>
+        <KpiCard title="Loss (Max)" value={`${performance.lossMax} pips`} />
 
-        <div
-          className="
-rounded-xl
-border
-p-5
-bg-white
-dark:bg-gray-800
-text-center
+        <KpiCard title="Result" value={`${performance.result} pips`} />
 
-"
-        >
-          <p className="text-gray-500">Profit (Max)</p>
-
-          <h2 className="text-3xl font-bold text-gray-900 dark:text-white">
-            {performance.profitMax} pips
-          </h2>
-        </div>
-
-        <div
-          className="
-rounded-xl
-border
-p-5
-bg-white
-dark:bg-gray-800
-text-center
-
-"
-        >
-          <p className="text-gray-500">Loss (Max)</p>
-
-          <h2 className="text-3xl font-bold text-gray-900 dark:text-white">
-            {performance.lossMax} pips
-          </h2>
-        </div>
-
-        <div
-          className="
-rounded-xl
-border
-p-5
-bg-white
-dark:bg-gray-800
-text-center
-
-"
-        >
-          <p className="text-gray-500">Result</p>
-
-          <h2 className="text-3xl font-bold text-gray-900 dark:text-white">
-            {performance.result} pips
-          </h2>
-        </div>
-
-        <div
-          className="
-rounded-xl
-border
-p-5
-bg-white
-dark:bg-gray-800
-text-center
-
-"
-        >
-          <p className="text-gray-500">Loss Streak</p>
-
-          <h2 className="text-3xl font-bold text-gray-900 dark:text-white">
-            {performance.lossStreak}
-          </h2>
-        </div>
+        <KpiCard title="Loss Streak" value={performance.lossStreak} />
       </div>
 
-      <PerformanceChart />
+      <select
+        value={selectedMonth}
+        onChange={(e) => setSelectedMonth(e.target.value)}
+        className="
+          rounded-lg
+          border
+          px-3
+          py-2
+          mb-5
+        "
+      >
+        {months.map((month) => (
+          <option key={month}>{month}</option>
+        ))}
+      </select>
+
+      <PerformanceChart selectedMonth={selectedMonth} />
+    </div>
+  );
+}
+
+function KpiCard({ title, value }: { title: string; value: string | number }) {
+  return (
+    <div
+      className="
+        rounded-xl
+        border
+        p-5
+        bg-white
+        dark:bg-gray-800
+        text-center
+      "
+    >
+      <p className="text-gray-500">{title}</p>
+
+      <h2
+        className="
+          text-3xl
+          font-bold
+          text-gray-900
+          dark:text-white
+        "
+      >
+        {value}
+      </h2>
     </div>
   );
 }
