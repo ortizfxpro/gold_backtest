@@ -89,7 +89,7 @@ text-center
           <p className="text-gray-500">Profit (Max)</p>
 
           <h2 className="text-3xl font-bold text-gray-900 dark:text-white">
-            {performance.profitMax}
+            {performance.profitMax} pips
           </h2>
         </div>
 
@@ -107,7 +107,7 @@ text-center
           <p className="text-gray-500">Loss (Max)</p>
 
           <h2 className="text-3xl font-bold text-gray-900 dark:text-white">
-            {performance.lossMax}
+            {performance.lossMax} pips
           </h2>
         </div>
 
@@ -125,7 +125,7 @@ text-center
           <p className="text-gray-500">Result</p>
 
           <h2 className="text-3xl font-bold text-gray-900 dark:text-white">
-            {performance.result}
+            {performance.result} pips
           </h2>
         </div>
 
