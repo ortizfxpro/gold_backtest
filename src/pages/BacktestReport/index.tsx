@@ -111,30 +111,46 @@ export default function BacktestReport() {
 
   const chartSeries = [
     {
-      name: "Result",
-      data: filteredData.map((item) => item.Result),
+      name: "Profit",
+      data: filteredData.map((item) => Number(item["Profit (Max)"] || 0)),
+    },
+    {
+      name: "Loss",
+      data: filteredData.map(
+        (item) => -Math.abs(Number(item["Loss (Max)"] || 0)),
+      ),
     },
   ];
 
   const chartOptions: ApexOptions = {
     chart: {
       type: "bar",
+
       toolbar: {
         show: false,
       },
+
+      stacked: true,
     },
 
     plotOptions: {
       bar: {
-        borderRadius: 5,
         columnWidth: "45%",
+        borderRadius: 5,
       },
     },
+
+    colors: [
+      "#16a34a", // Profit
+      "#dc2626", // Loss
+    ],
 
     dataLabels: {
       enabled: true,
 
-      formatter: (value) => `${value} pips`,
+      formatter: (value) => {
+        return `${value} pips`;
+      },
     },
 
     xaxis: {
@@ -145,6 +161,57 @@ export default function BacktestReport() {
       labels: {
         formatter: (value) => `${value} pips`,
       },
+    },
+
+    annotations: {
+      yaxis: [
+        {
+          y: 0,
+          borderColor: "#000",
+        },
+      ],
+
+      points: filteredData.map((item) => {
+        const profit = Number(item["Profit (Max)"] || 0);
+
+        const loss = Number(item["Loss (Max)"] || 0);
+
+        return {
+          x: item["TP Level"],
+
+          y: profit + 20,
+
+          marker: {
+            size: 0,
+          },
+
+          label: {
+            text: `Result ${item.Result > 0 ? "+" : ""}${item.Result} pips`,
+
+            borderColor: "transparent",
+
+            style: {
+              background: "transparent",
+
+              color: item.Result >= 0 ? "#16a34a" : "#dc2626",
+
+              fontSize: "12px",
+
+              fontWeight: 700,
+            },
+          },
+        };
+      }),
+    },
+
+    tooltip: {
+      y: {
+        formatter: (value) => `${value} pips`,
+      },
+    },
+
+    legend: {
+      position: "top",
     },
   };
 
@@ -223,11 +290,8 @@ export default function BacktestReport() {
 
         <Chart
           options={chartOptions}
-
           series={chartSeries}
-
           type="bar"
-
           height={300}
         />
       </div>
