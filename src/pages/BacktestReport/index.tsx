@@ -121,7 +121,40 @@ export default function BacktestReport() {
       ),
     },
   ];
+  const createMonthGroups = () => {
+    const groups: {
+      title: string;
+      cols: number;
+    }[] = [];
 
+    let currentMonth = "";
+    let count = 0;
+
+    filteredData.forEach((item) => {
+      if (item.Month !== currentMonth) {
+        if (count > 0) {
+          groups.push({
+            title: currentMonth,
+            cols: count,
+          });
+        }
+
+        currentMonth = item.Month;
+        count = 1;
+      } else {
+        count++;
+      }
+    });
+
+    if (count > 0) {
+      groups.push({
+        title: currentMonth,
+        cols: count,
+      });
+    }
+
+    return groups;
+  };
   const chartOptions: ApexOptions = {
     chart: {
       type: "bar",
@@ -155,8 +188,16 @@ export default function BacktestReport() {
 
     xaxis: {
       categories: filteredData.map((item) => item["TP Level"]),
-    },
 
+      group: {
+        style: {
+          fontSize: "12px",
+          fontWeight: 700,
+        },
+
+        groups: createMonthGroups(),
+      },
+    },
     yaxis: {
       labels: {
         formatter: (value) => `${value} pips`,
