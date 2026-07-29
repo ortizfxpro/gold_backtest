@@ -49,7 +49,7 @@ const navItems: NavItem[] = [
         path: "/risk-analysis",
       },
       {
-        name: "Strategy Comparison",
+        name: "Backtest Report",
         path: "/strategy-comparison",
       },
       {

@@ -20,9 +20,9 @@ import { ScrollToTop } from "./components/common/ScrollToTop";
 import Home from "./pages/Dashboard/Home";
 import ProviderPerformance from "./pages/ProviderPerformance";
 import SignalHistory from "./pages/SignalHistory";
-import  RiskAnalysis from "./pages/RiskAnalysis";
-import  StrategyComparison from "./pages/StrategyComparison";
-import  MonthlyReport from "./pages/MonthlyReport";
+import RiskAnalysis from "./pages/RiskAnalysis";
+import BacktestReport from "./pages/BacktestReport";
+import MonthlyReport from "./pages/MonthlyReport";
 
 export default function App() {
   return (
@@ -50,25 +50,13 @@ export default function App() {
               element={<ProviderPerformance />}
             />
 
-            <Route
-              path="/signal-history"
-              element={<SignalHistory />}
-            />
-            
-            <Route
-              path="/risk-analysis"
-              element={<RiskAnalysis />}
-            />
+            <Route path="/signal-history" element={<SignalHistory />} />
 
-            <Route
-              path="/strategy-comparison"
-              element={<StrategyComparison />}
-            />
+            <Route path="/risk-analysis" element={<RiskAnalysis />} />
 
-            <Route
-              path="/monthly-report"
-              element={<MonthlyReport />}
-            />
+            <Route path="/strategy-comparison" element={<BacktestReport />} />
+
+            <Route path="/monthly-report" element={<MonthlyReport />} />
 
             {/* Ui Elements */}
             <Route path="/alerts" element={<Alerts />} />
