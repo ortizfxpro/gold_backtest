@@ -1,0 +1,34 @@
+# Credentials
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Telegram sessions
+*.session
+*.session-journal
+
+# Database
+*.sqlite3
+*.db
+
+# Generated files
+*_temp.xlsx
+
+# Backup and archive files
+.git_incomplete_backup/
+*.zip
+
+# Excel output (if generated)
+new_channel_backtest_output.xlsx
+# Backup files
+*.backup
+
+# Private input data
+XauusdExpertSignal_13.xlsx
+
+# Git diagnostic files
+git-trace.json
