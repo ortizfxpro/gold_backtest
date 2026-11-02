@@ -37,7 +37,7 @@ OUTPUT_XLSX = Path(
 )
 TEMPLATE_XLSX = Path(os.getenv("TEMPLATE_XLSX", "")) if os.getenv("TEMPLATE_XLSX") else None
 SHEET_NAME = os.getenv("SHEET_NAME", "Result")
-CHANNEL = os.getenv("TELEGRAM_CHANNEL", "https://t.me/Goldxion")
+CHANNEL = os.getenv("TELEGRAM_CHANNEL", "https://t.me/xauusdsignals")
 MT5_SYMBOL = os.getenv("MT5_SYMBOL", "XAUUSD")
 # ICMarketsSC broker server time offset
 MT5_SERVER_UTC_OFFSET = timedelta(hours=6)
