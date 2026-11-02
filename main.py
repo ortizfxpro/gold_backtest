@@ -37,7 +37,7 @@ OUTPUT_XLSX = Path(
 )
 TEMPLATE_XLSX = Path(os.getenv("TEMPLATE_XLSX", "")) if os.getenv("TEMPLATE_XLSX") else None
 SHEET_NAME = os.getenv("SHEET_NAME", "Result")
-CHANNEL = os.getenv("TELEGRAM_CHANNEL", "https://t.me/xauusdsignals")
+CHANNEL = os.getenv("TELEGRAM_CHANNEL", "https://t.me/Goldxion")
 MT5_SYMBOL = os.getenv("MT5_SYMBOL", "XAUUSD")
 # ICMarketsSC broker server time offset
 MT5_SERVER_UTC_OFFSET = timedelta(hours=6)
@@ -631,9 +631,9 @@ def evaluate_signal(signal) -> dict:
             )
             for target in targets
         ]
-
+        # print each bar's OHLC value
         print(
-            f"{bar.time} | O={bar.open} H={bar.high} "
+           f"{bar.time} | O={bar.open} H={bar.high} "
             f"L={bar.low} C={bar.close} | "
             f"Entry filled={filled} | "
             f"SL hit={hit_sl} | TP hits={hit_targets}"
@@ -835,7 +835,7 @@ def process_signal(signal):
 def process_all_saved():
     con = db_connect()
     signals = con.execute("SELECT * FROM signals ORDER BY message_date, message_id").fetchall()
-    #signals = con.execute("SELECT * FROM signals ORDER BY message_date DESC, message_id DESC LIMIT 5").fetchall()
+    #signals = con.execute("SELECT * FROM signals ORDER BY message_date DESC, message_id DESC LIMIT 10").fetchall()
     
     con.close()
     for signal in signals:
@@ -923,18 +923,18 @@ async def main():
     await client.run_until_disconnected()
 
 
-test_message = """🔥GOLD BUY NOW 🔥 @ 3900-3890
+#test_message = """🔥GOLD BUY NOW 🔥 @ 3900-3890
 
-TP ⬅️ 3904
-TP ⬅️ 3920
-TP ⬅️ 3930
+#TP ⬅️ 3904
+#TP ⬅️ 3920
+#TP ⬅️ 3930
 
-SL 🚪 3883
+#SL 🚪 3883
 
-🛡 use BE & TP for risk management"""
+#🛡 use BE & TP for risk management"""
 
-result = parse_signal(test_message, datetime.now(timezone.utc))
-print("PARSER TEST RESULT:", result)
+#result = parse_signal(test_message, datetime.now(timezone.utc))
+#print("PARSER TEST RESULT:", result)
 
 if __name__ == "__main__":
     asyncio.run(main())
