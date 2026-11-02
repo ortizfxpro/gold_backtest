@@ -1,24 +1,38 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*.pyd
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Environment variables and secrets
+.env
+.env.*
+
+# IDE settings
+.vscode/
+.idea/
+
 # Logs
-logs
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
+# Temporary files
+*.tmp
+~$*.xlsx
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+# Python test and coverage files
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local databases and Telegram session credentials
+*.sqlite3
+*.session
+*.session-journal
+
+# Backup files
+.git_incomplete_backup/
+main.zip

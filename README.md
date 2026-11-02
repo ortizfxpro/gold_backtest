@@ -1,204 +1,53 @@
-# TailAdmin React - Free React Tailwind Admin Dashboard Template
+# XAUUSD Telegram Backtester (starter)
 
-TailAdmin is a free and open-source admin dashboard template built on **React and Tailwind CSS**, providing developers
-with everything they need to create a comprehensive, data-driven back-end,
-dashboard, or admin panel solution for upcoming web projects.
+This is a local research/backtesting starter, not a trading bot. It does not place orders.
 
-With TailAdmin, you get access to all the necessary dashboard UI components, elements, and pages required to build a
-feature-rich and complete dashboard or admin panel. Whether you're building dashboard or admin panel for a complex web
-application or a simple website, TailAdmin is the perfect solution to help you get up and running quickly.
+## Requirements
+- Windows 10/11
+- Python 3.11 recommended
+- MetaTrader 5 desktop terminal installed and logged in (demo is fine)
+- Telegram account that can access the target channel
+- Channel message format that can be parsed by `parse_signal()`
 
-![TailAdmin React.js Dashboard Preview](./banner.png)
+## Install
+Open PowerShell in this folder:
 
-## Overview
-
-TailAdmin provides essential UI components and layouts for building feature-rich, data-driven admin dashboards and
-control panels. It's built on:
-
-- React 19
-- TypeScript
-- Tailwind CSS v4
-
-### Quick Links
-
-- [✨ Visit Website](https://tailadmin.com)
-- [📄 Documentation](https://tailadmin.com/docs)
-- [⬇️ Download](https://tailadmin.com/download)
-- [🖌️ Figma Design File (Community Edition)](https://www.figma.com/community/file/1214477970819985778)
-- [⚡ Get PRO Version](https://tailadmin.com/pricing)
-
-### Demos
-
-- [Free Version](https://free-react-demo.tailadmin.com/)
-- [Pro Version](https://react-demo.tailadmin.com)
-
-### Other Versions
-
-- [HTML Version](https://github.com/TailAdmin/tailadmin-free-tailwind-dashboard-template)
-- [Next.js Version](https://github.com/TailAdmin/free-nextjs-admin-dashboard)
-- [Vue.js Version](https://github.com/TailAdmin/vue-tailwind-admin-dashboard)
-- [Angular Version](https://github.com/TailAdmin/free-angular-tailwind-dashboard)
-- [Laravel Version](https://github.com/TailAdmin/tailadmin-laravel)
-
-## Installation
-
-### Prerequisites
-
-To get started with TailAdmin, ensure you have the following prerequisites installed and set up:
-
-- Node.js 18.x or later (recommended to use Node.js 20.x or later)
-
-### Cloning the Repository
-
-Clone the repository using the following command:
-
-```bash
-git clone https://github.com/TailAdmin/free-react-tailwind-admin-dashboard.git
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+Copy-Item .env.example .env
+notepad .env
 ```
 
-> Windows Users: place the repository near the root of your drive if you face issues while cloning.
+Set `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` from https://my.telegram.org. Keep these private. On first run, Telethon asks for your phone number and login code. The resulting `telegram_session.session` file is sensitive; do not share it.
 
-1. Install dependencies:
+Open MT5 and log into the broker account that has the historical XAUUSD data you want. Search Market Watch for the exact symbol name. Some brokers use suffixes such as `XAUUSD.a` or `GOLD`.
 
-   ```bash
-   npm install
-   # or
-   yarn install
-   ```
+## Excel
+- If `OUTPUT_XLSX` points to an existing workbook, the script writes to the named sheet (or active sheet if that name is absent).
+- If it does not exist and `TEMPLATE_XLSX` points to a template, the script uses that template.
+- Otherwise it creates a new workbook with headers modeled on the screenshot.
+- Back up the workbook before first run. The program writes data rows and copies style from the previous row, but cannot perfectly reproduce merged date-group labels, conditional formatting rules, or formulas without inspecting the real workbook.
 
-2. Start the development server:
-   ```bash
-   npm run dev
-   # or
-   yarn dev
-   ```
+## Run
+```powershell
+python main.py
+```
 
-## Components
+The first run imports accessible history, then keeps listening for new messages. Press Ctrl+C to stop. The SQLite database `signals.sqlite3` stores parsed messages and avoids duplicate imports.
 
-TailAdmin is a pre-designed starting point for building a web-based dashboard using React.js and Tailwind CSS. The
-template includes:
+## Important limitations to fix before trusting results
+1. **Parser:** `parse_signal()` is only an example parser. It assumes a text message includes `BUY LIMIT` or `SELL LIMIT`, entry, SL, TP1, TP2 and TP3. Modify it to match actual channel messages. Messages that fail parsing are skipped and logged.
+2. **MT5 symbol and data:** MT5 must be open/logged in; broker history may be incomplete. Download sufficient M1 history first.
+3. **Independent TP results:** each target is evaluated as a separate hypothetical trade with the same entry and SL. This is not a single trade with partial closes.
+4. **PnL:** PnL is stored as R-multiple: win = target distance / stop distance; loss = -1R. It is not dollar PnL or the exact formula in your screenshot. Adjust the calculation to match your sheet.
+5. **Ambiguous M1 candles:** if one candle touches both SL and TP, result is `Ambiguous`; OHLC bars cannot prove which level came first. Use MT5 tick data for finer sequencing.
+6. **Entry fill model:** this starter assumes a limit fills if candle low/high touches entry; it does not model spread, slippage, commissions, gaps, partial fills, expiry, or order cancellation.
+7. **Historical timestamps:** Telegram timestamps are normalized to UTC for querying MT5; the Excel date/time is displayed in the Windows local timezone. Verify this matches your manual sheet.
+8. **Message edits/deletions:** edits are reprocessed. Telegram does not guarantee every deletion event is delivered; the original text is stored in SQLite for audit.
+9. **Excel row mapping:** Excel row numbers are saved in SQLite. If you sort or delete rows manually, clear the stored `excel_row` mappings or rebuild the output workbook.
 
-- Sophisticated and accessible sidebar
-- Data visualization components
-- Prebuilt profile management and 404 page
-- Tables and Charts(Line and Bar)
-- Authentication forms and input elements
-- Alerts, Dropdowns, Modals, Buttons and more
-- FAQ & Accordion, Testimonials, and Carousels
-- Can't forget Dark Mode 🕶️
-
-All components are built with React and styled using Tailwind CSS for easy customization.
-
-## Feature Comparison
-
-### Free Version
-
-- 1 Unique Dashboard
-- 35+ dashboard components
-- 50+ UI elements
-- Basic Figma design files
-- Community support
-
-### Pro Version
-
-- 7 Unique Dashboards: Analytics, Ecommerce, Marketing, CRM, SaaS, Stocks, Logistics (more coming soon)
-- 500+ dashboard components and UI elements
-- Complete Figma design file
-- Email support
-
-To learn more about pro version features and pricing, visit our [pricing page](https://tailadmin.com/pricing).
-
-## Changelog
-
-### Version 2.3.0 - [April 28, 2026]
-- Added **AI Dashboard** with token usage and revenue tracking.
-- Added **Sales Dashboard** with retention and multi-channel analytics.
-- Added **Finance Dashboard** with cashflow and balance management.
-- Introduced **6 New Layout variations** for improved UI flexibility.
-- Integrated **Advanced Data Visualization** with 7+ new chart types.
-
-### Version 2.1.0 - [Dec 30, 2025]
-
-- Resolved Date Picker positioning and input issues in Charts.
-
-### Version 2.0.2 - [March 25, 2025]
-
-- Upgraded to React 19
-- Included overrides for packages to prevent peer dependency errors.
-- Migrated from react-flatpickr to flatpickr package for React 19 support
-
-### Version 2.0.1 - [February 27, 2025]
-
-#### Update Overview
-
-- Upgraded to Tailwind CSS v4 for better performance and efficiency.
-- Updated class usage to match the latest syntax and features.
-- Replaced deprecated class and optimized styles.
-
-#### Next Steps
-
-- Run npm install or yarn install to update dependencies.
-- Check for any style changes or compatibility issues.
-- Refer to the Tailwind CSS v4 [Migration Guide](https://tailwindcss.com/docs/upgrade-guide) on this release. if needed.
-- This update keeps the project up to date with the latest Tailwind improvements. 🚀
-
-### Version 2.0.0 - [February 2025]
-
-A major update with comprehensive redesign and modern React patterns implementation.
-
-#### Major Improvements
-
-- Complete UI redesign with modern React patterns
-- New features: collapsible sidebar, chat, and calendar
-- Improved performance and accessibility
-- Updated data visualization using ApexCharts
-
-#### Key Features
-
-- Redesigned dashboards (Ecommerce, Analytics, Marketing, CRM)
-- Enhanced navigation with React Router integration
-- Advanced tables with sorting and filtering
-- Calendar with drag-and-drop support
-- New UI components and improved existing ones
-
-#### Breaking Changes
-
-- Updated sidebar component API
-- Migrated charts to ApexCharts
-- Revised authentication system
-
-[Read more](https://tailadmin.com/docs/update-logs/react) on this release.
-
-### Version 1.3.7 - [June 20, 2024]
-
-#### Enhancements
-
-1. Remove Repetition of DefaultLayout in every Pages
-2. Add ClickOutside Component for reduce repeated functionality in Header Message, Notification and User Dropdowns.
-
-### Version 1.3.6 - [Jan 31, 2024]
-
-#### Enhancements
-
-1. Integrate flatpickr in [Date Picker/Form Elements]
-2. Change color after select an option [Select Element/Form Elements].
-3. Make it functional [Multiselect Dropdown/Form Elements].
-4. Make best value editable [Pricing Table One/Pricing Table].
-5. Rearrange Folder structure.
-
-### Version 1.2.0 - [Apr 28, 2023]
-
-- Add Typescript in TailAdmin React.
-
-### Version 1.0.0 - Initial Release - [Mar 13, 2023]
-
-- Initial release of TailAdmin React.
-
-## License
-
-TailAdmin React.js Free Version is released under the MIT License.
-
-## Support
-
-If you find this project helpful, please consider giving it a star on GitHub. Your support helps us continue developing
-and maintaining this template.
+## Validate before using
+Manually check at least 30 signals across wins, losses, unfilled limits, and ambiguous candles. Compare entry fill, each target outcome, timestamps, and PnL against your existing workbook. Do not use results for financial decisions until these differences are explained.
