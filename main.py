@@ -228,15 +228,6 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
         else side.title()
     )
 
-  #  return {
-  #      "direction": direction,
-  #       "entry": entry,
-  #      "sl": sl,
-  #      "tp1": tp1,
-  #      "tp2": tp2,
-  #      "tp3": tp3,
-  #  }
-
     return {
         "direction": direction,
         "entry": entry,
@@ -250,12 +241,6 @@ def save_message(chat_id, msg_id, msg_date, text):
     if parsed is None:
         con.close()
         return False
-    #con.execute("""INSERT OR IGNORE INTO signals
-    #    (chat_id,message_id,message_date,raw_text,direction,entry,sl,tp1,tp2,tp3)
-    #    VALUES (?,?,?,?,?,?,?,?,?,?)""",
-    #    (str(chat_id), int(msg_id), msg_date.astimezone(timezone.utc).isoformat(), text,
-    #     parsed["direction"], parsed["entry"], parsed["sl"], parsed["tp1"], parsed["tp2"], parsed["tp3"]))
-
 
     con.execute("""
         INSERT OR IGNORE INTO signals
@@ -302,11 +287,10 @@ def get_rates(start: datetime, end: datetime) -> pd.DataFrame:
 
         # There's a BUG in mt5.copy_rates_range (they treat their server timezone
         # to be ALWAYS UTC, which is fucking wrong)
-        # start = start + timedelta(hours=3)
-
+     
         # Adjust MT5 historical data request according to DST schedule.
-        year = start.year
 
+        year = start.year
         dst_start = datetime(year, 3, 8, tzinfo=start.tzinfo)
         dst_end = datetime(year, 11, 2, tzinfo=start.tzinfo)
 
@@ -431,7 +415,6 @@ def evaluate_signal(signal) -> dict:
     """
 
     msg_time = datetime.fromisoformat(signal["message_date"])
-
     if msg_time.tzinfo is None:
         msg_time = msg_time.replace(tzinfo=timezone.utc)
 
@@ -450,13 +433,6 @@ def evaluate_signal(signal) -> dict:
 
     entry = float(signal["entry"])
     sl = float(signal["sl"])
-
-    #targets = [
-    #    signal["tp1"],
-    #    signal["tp2"],
-    #    signal["tp3"],
-    #]
-
     targets = [
     signal[f"tp{i}"]
     for i in range(1, 7)
@@ -474,11 +450,9 @@ def evaluate_signal(signal) -> dict:
         return {"results": [("Pending", None)] * 3, "filled": False}
 
     risk = abs(entry - sl)
-
     if risk <= 0:
         return {"results": [("Pending", None)] * 3, "filled": False}
 
-    #results = [None, None, None]
     results = [None] * 6
 
     filled = False
@@ -620,13 +594,11 @@ def evaluate_signal(signal) -> dict:
 
         # SL and unresolved TP touched in the same candle.
         if hit_sl and any(hit_targets[i] for i in unresolved):
-
             for i in unresolved:
                 if hit_targets[i]:
                     results[i] = ("Ambiguous", None)
                 else:
-                    results[i] = ("Loss", -1.0)
-
+                    results[i] = ("Loss", -1.1)
             break
 
         # Record independently reached targets.
@@ -639,18 +611,15 @@ def evaluate_signal(signal) -> dict:
 
         # SL closes all remaining unresolved targets.
         if hit_sl:
-            #for i in range(3):
             for i in range(6):
                 if results[i] is None and targets[i] is not None:
-                    results[i] = ("Loss", -1.0)
-
+                    results[i] = ("Loss", -1.1)
             break
 
     # Assign remaining results.
     for i, target in enumerate(targets):
         if target is None:
             results[i] = ("N/A", None)
-
         elif results[i] is None:
             results[i] = (
                 "Open at end" if filled else "Pending",
@@ -659,13 +628,7 @@ def evaluate_signal(signal) -> dict:
 
     print("ORDER FILLED:", filled)
     print("FINAL RESULTS:", results)
-
     return {"results": results, "filled": filled}
-
-
-
-
-
 
 
 def ensure_workbook():
@@ -695,7 +658,6 @@ def ensure_workbook():
 
 def write_signal_to_excel(row_data, signal_key):
     OUTPUT_XLSX.parent.mkdir(parents=True, exist_ok=True)
-
     wb, ws = ensure_workbook()
     con = db_connect()
 
@@ -860,12 +822,7 @@ async def main():
         if not parsed:
             logging.warning("Edited message %s no longer parses; review it manually.", event.id)
             return
-        con = db_connect()
-        #con.execute("""UPDATE signals SET raw_text=?, message_date=?, direction=?, entry=?, sl=?, tp1=?, tp2=?, tp3=?
-        #    WHERE chat_id=? AND message_id=?""",
-        #    (event.raw_text, event.date.astimezone(timezone.utc).isoformat(), parsed["direction"],
-        #     parsed["entry"], parsed["sl"], parsed["tp1"], parsed["tp2"], parsed["tp3"], str(chat_id), event.id))
-        
+        con = db_connect() 
         con.execute("""
         UPDATE signals
         SET raw_text=?, message_date=?, direction=?,
@@ -900,20 +857,6 @@ async def main():
     asyncio.create_task(periodic_refresh())
     logging.info("Listening for new channel messages. Press Ctrl+C to stop.")
     await client.run_until_disconnected()
-
-
-#test_message = """🔥GOLD BUY NOW 🔥 @ 3900-3890
-
-#TP ⬅️ 3904
-#TP ⬅️ 3920
-#TP ⬅️ 3930
-
-#SL 🚪 3883
-
-#🛡 use BE & TP for risk management"""
-
-#result = parse_signal(test_message, datetime.now(timezone.utc))
-#print("PARSER TEST RESULT:", result)
 
 if __name__ == "__main__":
     asyncio.run(main())
