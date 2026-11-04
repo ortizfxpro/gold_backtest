@@ -20,12 +20,22 @@ import pandas as pd
 from dotenv import load_dotenv
 from openpyxl import load_workbook
 from telethon import TelegramClient, events
-
+from difflib import SequenceMatcher
+from docx import Document
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 ROOT = Path(__file__).resolve().parent
+
+SIGNAL_FORMATS_DOCX = ROOT / "signal_formats.docx"
+
+# Minimum similarity required to recognize a documented format.
+FORMAT_MATCH_THRESHOLD = 0.68
+
+_SIGNAL_FORMATS_CACHE = []
+_SIGNAL_FORMATS_MTIME = None
+
 DB_PATH = ROOT / os.getenv(
     "DB_PATH", "goldxion.sqlite3"
 )
@@ -56,7 +66,7 @@ def db_connect():
     con.row_factory = sqlite3.Row
     con.execute("""CREATE TABLE IF NOT EXISTS signals (
         chat_id TEXT NOT NULL, message_id INTEGER NOT NULL, message_date TEXT NOT NULL,
-        raw_text TEXT NOT NULL, direction TEXT, entry REAL, sl REAL,
+        raw_text TEXT NOT NULL, matched_format TEXT, direction TEXT, entry REAL, sl REAL,
         tp1 REAL, tp2 REAL, tp3 REAL,
         tp4 REAL, tp5 REAL, tp6 REAL,
         excel_row INTEGER,PRIMARY KEY(chat_id, message_id))""")
@@ -65,6 +75,11 @@ def db_connect():
         row["name"]
         for row in con.execute("PRAGMA table_info(signals)").fetchall()
     }
+
+    if "matched_format" not in existing_columns:
+        con.execute(
+            "ALTER TABLE signals ADD COLUMN matched_format TEXT"
+        )
 
     for i in range(4, 7):
         column = f"tp{i}"
@@ -77,6 +92,185 @@ def db_connect():
     con.commit()
     return con
 
+def normalize_signal_text(text: str) -> str:
+    """
+    Normalize a Telegram message for structural comparison.
+
+    Prices are replaced with a common placeholder so that
+    different prices can match the same documented format.
+    """
+
+    text = (text or "").upper()
+
+    # Replace numeric values, including decimal prices.
+    text = re.sub(
+        r"\d+(?:\.\d+)?",
+        "<NUM>",
+        text
+    )
+
+    # Remove punctuation and decorative symbols.
+    text = re.sub(
+        r"[^\w\s<>]",
+        " ",
+        text,
+        flags=re.UNICODE
+    )
+
+    # Normalize whitespace.
+    text = re.sub(r"\s+", " ", text)
+
+    return text.strip()
+
+
+def load_signal_formats(force_reload=False):
+    """
+    Load signal examples from signal_formats.docx.
+
+    Each example should be stored in a separate Word table.
+    The function reloads the document automatically if it changes.
+    """
+
+    global _SIGNAL_FORMATS_CACHE
+    global _SIGNAL_FORMATS_MTIME
+
+    if not SIGNAL_FORMATS_DOCX.exists():
+        logging.warning(
+            "Signal format document not found: %s",
+            SIGNAL_FORMATS_DOCX
+        )
+        return []
+
+    current_mtime = SIGNAL_FORMATS_DOCX.stat().st_mtime
+
+    if (
+        not force_reload
+        and _SIGNAL_FORMATS_MTIME == current_mtime
+    ):
+        return _SIGNAL_FORMATS_CACHE
+
+    try:
+        doc = Document(SIGNAL_FORMATS_DOCX)
+
+        formats = []
+
+        for index, table in enumerate(doc.tables, start=1):
+
+            # Combine the text in the table cells.
+            example_text = "\n".join(
+                cell.text
+                for row in table.rows
+                for cell in row.cells
+            ).strip()
+
+            if not example_text:
+                continue
+
+            normalized = normalize_signal_text(example_text)
+
+            formats.append({
+                "name": f"Format {index:03d}",
+                "example": example_text,
+                "signature": normalized,
+            })
+
+        _SIGNAL_FORMATS_CACHE = formats
+        _SIGNAL_FORMATS_MTIME = current_mtime
+
+        logging.info(
+            "Loaded %d signal formats from %s",
+            len(formats),
+            SIGNAL_FORMATS_DOCX.name
+        )
+
+        return formats
+
+    except Exception:
+        logging.exception("Failed to read signal format document")
+        return []
+
+
+def match_signal_format(message: str):
+    """
+    Find the closest documented signal format.
+
+    Returns:
+        {
+            "name": "Format 001",
+            "score": 0.95
+        }
+
+    Returns None if no format matches.
+    """
+
+    formats = load_signal_formats()
+
+    if not formats:
+        logging.warning("No signal formats are available.")
+        return None
+
+    normalized_message = normalize_signal_text(message)
+
+    # Basic requirements for a potential gold signal.
+    has_instrument = bool(
+        re.search(r"\b(?:XAUUSD|GOLD)\b", message, re.I)
+    )
+
+    has_direction = bool(
+        re.search(r"\b(?:BUY|SELL)\b", message, re.I)
+    )
+
+    has_sl = bool(
+        re.search(r"\b(?:SL|STOP\s*LOSS)\b", message, re.I)
+    )
+
+    has_tp = bool(
+        re.search(
+            r"\b(?:TP\s*[1-6]?|TARGET\s*[1-6]?|TAKE\s*PROFIT)\b",
+            message,
+            re.I
+        )
+    )
+
+    if not all([has_instrument, has_direction, has_sl, has_tp]):
+        return None
+
+    best_match = None
+    best_score = 0.0
+
+    for item in formats:
+
+        score = SequenceMatcher(
+            None,
+            normalized_message,
+            item["signature"]
+        ).ratio()
+
+        if score > best_score:
+            best_score = score
+            best_match = item
+
+    if (
+        best_match is None
+        or best_score < FORMAT_MATCH_THRESHOLD
+    ):
+        logging.warning(
+            "Unrecognized signal format. Best similarity: %.2f | Message: %r",
+            best_score,
+            message[:180]
+        )
+        return None
+
+    logging.info(
+        "Matched signal format: %s | Similarity: %.2f",
+        best_match["name"],
+        best_score
+    )
+
+    return {
+        "name": best_match["name"],
+        "score": best_score,
+    }
 
 
 def parse_signal(text: str, message_date: datetime) -> dict | None:
@@ -100,6 +294,16 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
         return None
 
     side = direction_match.group(1)
+
+    # Match the message against the Word document format library.
+    format_match = match_signal_format(text)
+
+    if format_match is None:
+        logging.warning(
+            "Message rejected: no documented format matched. %r",
+            text[:180]
+        )
+        return None
 
     # Identify the order type and entry price.
     entry = None
@@ -174,6 +378,45 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
             )
             order_type = "Market"
 
+    # BUY / SELL followed directly by an entry price.
+    # Examples:
+    # XAUUSD SELL 4002
+    # GOLD BUY 3950
+    if entry is None:
+        entry_match = re.search(
+            rf"\b(?:XAUUSD|GOLD)\b\s+"
+            rf"(?:BUY|SELL)\s+"
+            rf"{entry_prices}",
+            t,
+            re.I,
+        )
+
+        if entry_match:
+            entry = select_entry(
+                entry_match.group("first"),
+                entry_match.group("second"),
+            )
+            order_type = "Market"
+
+
+    # BUY NOW / SELL NOW.
+    # Allows emojis between NOW and the entry price.
+    if entry is None:
+        entry_match = re.search(
+            rf"\b(?:BUY|SELL)\s+NOW\b"
+            rf"[^\d\r\n]*?{entry_prices}",
+            t,
+            re.I,
+        )
+
+        if entry_match:
+            entry = select_entry(
+                entry_match.group("first"),
+                entry_match.group("second"),
+            )
+            order_type = "Market"
+
+
     # Stop loss: allow emojis between SL and the price.
     sl_match = re.search(
         rf"\b(?:SL|STOP\s*LOSS)\b"
@@ -232,6 +475,7 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
         "direction": direction,
         "entry": entry,
         "sl": sl,
+        "matched_format": format_match["name"],
         **tp_values,
     }
 
@@ -246,8 +490,8 @@ def save_message(chat_id, msg_id, msg_date, text):
         INSERT OR IGNORE INTO signals
         (chat_id, message_id, message_date, raw_text,
         direction, entry, sl,
-        tp1, tp2, tp3, tp4, tp5, tp6)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        tp1, tp2, tp3, tp4, tp5, tp6, matched_format)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         str(chat_id),
         int(msg_id),
@@ -262,6 +506,7 @@ def save_message(chat_id, msg_id, msg_date, text):
         parsed["tp4"],
         parsed["tp5"],
         parsed["tp6"],
+        parsed["matched_format"],
     ))
 
     con.commit()
@@ -857,6 +1102,43 @@ async def main():
     asyncio.create_task(periodic_refresh())
     logging.info("Listening for new channel messages. Press Ctrl+C to stop.")
     await client.run_until_disconnected()
+
+def test_signal_format_recognition():
+
+    examples = [
+        """XAUUSD SELL 4002
+
+SL: 4012
+
+TP 3998
+TP 3995
+TP 3992
+TP 3985""",
+
+        """Gold Buy Now 3958.6 - 3948.6
+
+SL: 3942.6
+
+TP1: 3962.6
+TP2: 3966""",
+    ]
+
+    print("\n--- FORMAT RECOGNITION TEST ---")
+
+    for message in examples:
+
+        result = match_signal_format(message)
+
+        print("\nMessage:")
+        print(message)
+
+        print("Match:", result)
+
+
+# Uncomment this line to run the format test.
+# test_signal_format_recognition()
+
+
 
 if __name__ == "__main__":
     asyncio.run(main())
