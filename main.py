@@ -40,7 +40,7 @@ SHEET_NAME = os.getenv("SHEET_NAME", "Result")
 CHANNEL = os.getenv("TELEGRAM_CHANNEL", "https://t.me/Goldxion")
 MT5_SYMBOL = os.getenv("MT5_SYMBOL", "XAUUSD")
 # ICMarketsSC broker server time offset
-MT5_SERVER_UTC_OFFSET = timedelta(hours=6)
+# MT5_SERVER_UTC_OFFSET = timedelta(hours=6)
 
 LOOKAHEAD_DAYS = int(os.getenv("LOOKAHEAD_DAYS", "7"))
 HISTORY_LIMIT = int(os.getenv("HISTORY_LIMIT", "0"))  # 0 = all accessible history
@@ -101,12 +101,7 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
 
     side = direction_match.group(1)
 
-        # Identify the order type and entry price.
-    # Supports single prices and ranges:
-    # BUY 3900-3890 -> entry 3890
-    # SELL 3900-3910 -> entry 3910
-    # Emojis and other text between labels and prices are allowed.
-
+    # Identify the order type and entry price.
     entry = None
     order_type = None
 
@@ -138,9 +133,7 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
         order_type = order_match.group(2).title()
 
         if order_side != side:
-            logging.warning(
-                "Direction and entry order do not match: %r", text
-            )
+            logging.warning("Direction and entry order do not match: %r", text)
             return None
 
         entry = select_entry(
@@ -188,7 +181,6 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
         t,
         re.I,
     )
-
     sl = float(sl_match.group(1)) if sl_match else None
 
     # Take-profit targets: allow emojis between TP and the price.
@@ -216,23 +208,16 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
         for i in range(6)
     }
 
- 
-
     # Validate price direction.
     if side == "BUY":
-        # valid = sl < entry and all(
-        #    tp > entry for tp in (tp1, tp2, tp3) if tp is not None
-        # )
         valid = sl < entry and all(
             tp > entry for tp in targets
-            )
+        )
     else:
-         #valid = sl > entry and all(
-         #   tp < entry for tp in (tp1, tp2, tp3) if tp is not None
-        #)
-        valid = sl < entry and all(
-                    tp > entry for tp in targets
-                    )
+        valid = sl > entry and all(
+            tp < entry for tp in targets
+        )
+
     if not valid:
         logging.warning("Signal has inconsistent prices: %r", text[:180])
         return None
@@ -434,11 +419,6 @@ def evaluate_target(signal, bars: pd.DataFrame, target: float | None) -> tuple[s
     return ("Open at end" if filled else "Pending"), None
 
 
-
-
-
-
-
 def evaluate_signal(signal) -> dict:
     """Evaluate each TP independently.
 
@@ -456,7 +436,6 @@ def evaluate_signal(signal) -> dict:
         msg_time = msg_time.replace(tzinfo=timezone.utc)
 
     msg_time = msg_time.astimezone(timezone.utc)
-
     now = datetime.now(timezone.utc)
     end = min(now, msg_time + timedelta(days=LOOKAHEAD_DAYS))
 
