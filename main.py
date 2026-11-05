@@ -92,6 +92,26 @@ def db_connect():
     con.commit()
     return con
 
+def normalize_tp_number_symbols(text: str) -> str:
+    """
+    Convert circled TP numbers into ordinary digits.
+
+    ① -> 1
+    ② -> 2
+    ③ -> 3
+    ④ -> 4
+    ⑤ -> 5
+    ⑥ -> 6
+    """
+
+    return (text or "").translate(
+        str.maketrans(
+            "①②③④⑤⑥",
+            "123456"
+        )
+    )
+
+
 def normalize_signal_text(text: str) -> str:
     """
     Normalize a Telegram message for structural comparison.
@@ -100,7 +120,7 @@ def normalize_signal_text(text: str) -> str:
     different prices can match the same documented format.
     """
 
-    text = (text or "").upper()
+    text = normalize_tp_number_symbols(text).upper()
 
     # Replace numeric values, including decimal prices.
     text = re.sub(
@@ -202,7 +222,7 @@ def match_signal_format(message: str):
 
     Returns None if no format matches.
     """
-
+    message = normalize_tp_number_symbols(message)
     formats = load_signal_formats()
 
     if not formats:
@@ -276,7 +296,7 @@ def match_signal_format(message: str):
 def parse_signal(text: str, message_date: datetime) -> dict | None:
     """Parse XAUUSD market, stop, and limit signals."""
 
-    t = text.upper().replace(",", "")
+    t = normalize_tp_number_symbols(text).upper().replace(",", "")
     t = re.sub(r"[ \t]+", " ", t)
 
     # Accept XAUUSD or GOLD.
@@ -362,11 +382,13 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
             order_type = "Market"
 
     # BUY NOW / SELL NOW.
-    # Allows emojis between NOW and the entry price.
+    # Supports emojis, symbols, spaces, and line breaks
+    # between NOW and the entry price.
+
     if entry is None:
         entry_match = re.search(
             rf"\b(?:BUY|SELL)\s+NOW\b"
-            rf"[^\d\r\n]*?{entry_prices}",
+            rf"[^0-9]*?{entry_prices}",
             t,
             re.I,
         )
@@ -401,20 +423,20 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
 
     # BUY NOW / SELL NOW.
     # Allows emojis between NOW and the entry price.
-    if entry is None:
-        entry_match = re.search(
-            rf"\b(?:BUY|SELL)\s+NOW\b"
-            rf"[^\d\r\n]*?{entry_prices}",
-            t,
-            re.I,
-        )
+    # if entry is None:
+    #    entry_match = re.search(
+    #        rf"\b(?:BUY|SELL)\s+NOW\b"
+    #        rf"[^\d\r\n]*?{entry_prices}",
+    #        t,
+    #        re.I,
+    #    )
 
-        if entry_match:
-            entry = select_entry(
-                entry_match.group("first"),
-                entry_match.group("second"),
-            )
-            order_type = "Market"
+    #    if entry_match:
+    #        entry = select_entry(
+    #            entry_match.group("first"),
+    #            entry_match.group("second"),
+    #        )
+    #        order_type = "Market"
 
 
     # Stop loss: allow emojis between SL and the price.
@@ -426,17 +448,32 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
     )
     sl = float(sl_match.group(1)) if sl_match else None
 
-    # Take-profit targets: allow emojis between TP and the price.
+    # Take-profit targets.
+    # Supports:
+    # TP1: 4150
+    # TP1️⃣: 4150
+    # TP:1️⃣: 4150
+    # TP2️⃣: 4189
+    # TP ➡️ 3998
+
+    target_pattern = (
+        rf"\b(?:TP|TARGET|TAKE\s*PROFIT)(?![A-Z])"
+        rf"\s*:?\s*"
+        rf"(?:[1-6](?:\ufe0f?\u20e3)?(?=\s*:|\s*\ufe0f?\u20e3))?"
+        rf"\s*:?\s*"
+        rf"[^0-9]*?({price})"
+    )
+
     targets = [
         float(match.group(1))
         for match in re.finditer(
-            rf"\b(?:TP\s*[1-6]?|TARGET\s*[1-6]?|TAKE\s*PROFIT)\b"
-            rf"[^\d\r\n]*?({price})",
+            target_pattern,
             t,
             re.I,
         )
     ]
 
+   
     if entry is None or sl is None or not targets:
         logging.debug("Message did not match signal format: %r", text[:180])
         return None
@@ -451,7 +488,7 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
         for i in range(6)
     }
 
-    # Validate price direction.
+        # Validate price direction.
     if side == "BUY":
         valid = sl < entry and all(
             tp > entry for tp in targets
@@ -462,7 +499,14 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
         )
 
     if not valid:
-        logging.warning("Signal has inconsistent prices: %r", text[:180])
+        logging.warning(
+            "Signal has inconsistent prices | Direction=%s | Entry=%s | SL=%s | TPs=%s | Message=%r",
+            side,
+            entry,
+            sl,
+            targets,
+            text[:180],
+        )
         return None
 
     direction = (
@@ -583,7 +627,7 @@ def get_rates(start: datetime, end: datetime) -> pd.DataFrame:
 
         # Convert MT5 timestamps to datetime.
         # df["time"] = pd.to_datetime(df["time"], unit="s")
-        df["time"] = pd.to_datetime(df["time"], unit="s").dt.tz_localize("Etc/GMT-3")
+        # df["time"] = pd.to_datetime(df["time"], unit="s").dt.tz_localize("Etc/GMT-3")
 
         return df.sort_values("time").reset_index(drop=True)
     finally:
@@ -1021,8 +1065,8 @@ def process_signal(signal):
 def process_all_saved():
     con = db_connect()
     signals = con.execute("SELECT * FROM signals ORDER BY message_date, message_id").fetchall()
-    #signals = con.execute("SELECT * FROM signals ORDER BY message_date DESC, message_id DESC LIMIT 10").fetchall()
-    
+    # signals = con.execute("SELECT * FROM signals ORDER BY message_date DESC, message_id DESC LIMIT 10").fetchall()
+
     con.close()
     for signal in signals:
         try:
@@ -1102,42 +1146,6 @@ async def main():
     asyncio.create_task(periodic_refresh())
     logging.info("Listening for new channel messages. Press Ctrl+C to stop.")
     await client.run_until_disconnected()
-
-def test_signal_format_recognition():
-
-    examples = [
-        """XAUUSD SELL 4002
-
-SL: 4012
-
-TP 3998
-TP 3995
-TP 3992
-TP 3985""",
-
-        """Gold Buy Now 3958.6 - 3948.6
-
-SL: 3942.6
-
-TP1: 3962.6
-TP2: 3966""",
-    ]
-
-    print("\n--- FORMAT RECOGNITION TEST ---")
-
-    for message in examples:
-
-        result = match_signal_format(message)
-
-        print("\nMessage:")
-        print(message)
-
-        print("Match:", result)
-
-
-# Uncomment this line to run the format test.
-# test_signal_format_recognition()
-
 
 
 if __name__ == "__main__":
