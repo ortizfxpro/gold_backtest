@@ -129,6 +129,7 @@ def normalize_instrument_symbols(text: str) -> str:
     )
 
 
+
 def normalize_signal_text(text: str) -> str:
     """
     Normalize Telegram messages for documented format comparison.
@@ -303,6 +304,81 @@ def match_signal_format(message: str):
         "name": best_match["name"],
         "score": best_score,
     }
+
+
+
+def correct_final_tp_typo(
+    side: str,
+    entry: float,
+    targets: list[float],
+    tolerance: float = 0.01,
+) -> list[float]:
+
+    if len(targets) < 5:
+        return targets
+
+    previous_targets = targets[:-1]
+
+    differences = [
+        previous_targets[i + 1] - previous_targets[i]
+        for i in range(len(previous_targets) - 1)
+    ]
+
+    step = differences[0]
+
+    # Previous targets must form a consistent sequence.
+    if not all(
+        abs(difference - step) <= tolerance
+        for difference in differences
+    ):
+        return targets
+
+    if side == "SELL":
+        if step >= 0:
+            return targets
+
+        if not all(tp < entry for tp in previous_targets):
+            return targets
+
+        # Correct only when the final target contradicts SELL direction.
+        if targets[-1] < entry:
+            return targets
+
+    elif side == "BUY":
+        if step <= 0:
+            return targets
+
+        if not all(tp > entry for tp in previous_targets):
+            return targets
+
+        if targets[-1] > entry:
+            return targets
+
+    else:
+        return targets
+
+    expected_target = round(previous_targets[-1] + step, 3)
+
+    if side == "SELL" and expected_target >= entry:
+        return targets
+
+    if side == "BUY" and expected_target <= entry:
+        return targets
+
+    corrected = targets.copy()
+    original = corrected[-1]
+    corrected[-1] = expected_target
+
+    logging.warning(
+        "FINAL TP AUTO-CORRECTION | Side=%s | Entry=%s | "
+        "Original=%s | Corrected=%s",
+        side,
+        entry,
+        original,
+        expected_target,
+    )
+
+    return corrected
 
 
 def parse_signal(text: str, message_date: datetime) -> dict | None:
@@ -540,6 +616,13 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
 
     targets = targets[:6]
 
+    # Correct an obvious typo in the final TP.
+    targets = correct_final_tp_typo(
+        side=side,
+        entry=entry,
+        targets=targets,
+    )
+    
     tp_values = {
         f"tp{i + 1}": targets[i] if i < len(targets) else None
         for i in range(6)
@@ -883,7 +966,7 @@ def evaluate_signal(signal) -> dict:
             # All order types require BODY contact with entry.
             entry_touched = body_touched
 
-            
+
             hit_sl_before_entry = (
                 bar.low <= sl if is_buy else bar.high >= sl
             )
