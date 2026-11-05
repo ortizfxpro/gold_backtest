@@ -111,25 +111,39 @@ def normalize_tp_number_symbols(text: str) -> str:
         )
     )
 
+def normalize_instrument_symbols(text: str) -> str:
+    """
+    Normalize alternative XAUUSD spellings.
+
+    XAU/USD -> XAUUSD
+    XAU / USD -> XAUUSD
+    """
+
+    text = (text or "").replace("\u00A0", " ")
+
+    return re.sub(
+        r"\bXAU\s*/\s*USD\b",
+        "XAUUSD",
+        text,
+        flags=re.I
+    )
+
 
 def normalize_signal_text(text: str) -> str:
     """
-    Normalize a Telegram message for structural comparison.
-
-    Prices are replaced with a common placeholder so that
-    different prices can match the same documented format.
+    Normalize Telegram messages for documented format comparison.
     """
 
-    text = normalize_tp_number_symbols(text).upper()
+    text = normalize_instrument_symbols(text).upper()
 
-    # Replace numeric values, including decimal prices.
+    # Replace numeric prices.
     text = re.sub(
         r"\d+(?:\.\d+)?",
         "<NUM>",
         text
     )
 
-    # Remove punctuation and decorative symbols.
+    # Remove punctuation and decorative emojis.
     text = re.sub(
         r"[^\w\s<>]",
         " ",
@@ -211,43 +225,41 @@ def load_signal_formats(force_reload=False):
 
 
 def match_signal_format(message: str):
-    """
-    Find the closest documented signal format.
 
-    Returns:
-        {
-            "name": "Format 001",
-            "score": 0.95
-        }
-
-    Returns None if no format matches.
-    """
-    message = normalize_tp_number_symbols(message)
     formats = load_signal_formats()
 
     if not formats:
         logging.warning("No signal formats are available.")
         return None
 
+    check_message = normalize_instrument_symbols(message)
     normalized_message = normalize_signal_text(message)
 
-    # Basic requirements for a potential gold signal.
+    # Basic signal requirements.
     has_instrument = bool(
-        re.search(r"\b(?:XAUUSD|GOLD)\b", message, re.I)
+        re.search(
+            r"\b(?:XAUUSD|GOLD)\b",
+            check_message,
+            re.I
+        )
     )
 
     has_direction = bool(
-        re.search(r"\b(?:BUY|SELL)\b", message, re.I)
+        re.search(r"\b(?:BUY|SELL)\b", check_message, re.I)
     )
 
     has_sl = bool(
-        re.search(r"\b(?:SL|STOP\s*LOSS)\b", message, re.I)
+        re.search(
+            r"\b(?:SL|STOP\s*LOSS)\b",
+            check_message,
+            re.I
+        )
     )
 
     has_tp = bool(
         re.search(
-            r"\b(?:TP\s*[1-6]?|TARGET\s*[1-6]?|TAKE\s*PROFIT)\b",
-            message,
+            r"\b(?:TP|TARGETS?|TAKE\s*PROFIT)(?![A-Z])",
+            check_message,
             re.I
         )
     )
@@ -296,7 +308,7 @@ def match_signal_format(message: str):
 def parse_signal(text: str, message_date: datetime) -> dict | None:
     """Parse XAUUSD market, stop, and limit signals."""
 
-    t = normalize_tp_number_symbols(text).upper().replace(",", "")
+    t = normalize_instrument_symbols(text).upper().replace(",", "")
     t = re.sub(r"[ \t]+", " ", t)
 
     # Accept XAUUSD or GOLD.
@@ -332,10 +344,10 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
     price = r"\d{3,5}(?:\.\d+)?"
 
     entry_prices = (
-        rf"(?P<first>{price})"
-        rf"(?:\s*(?:-|–|—|\bTO\b)\s*(?P<second>{price}))?"
+    rf"(?P<first>{price})"
+    rf"(?:\s*(?:-|–|—|/|\bTO\b)\s*(?P<second>{price}))?"
     )
-
+    
     def select_entry(first, second=None):
         prices = [float(first)]
 
@@ -421,24 +433,41 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
             order_type = "Market"
 
 
-    # BUY NOW / SELL NOW.
-    # Allows emojis between NOW and the entry price.
-    # if entry is None:
-    #    entry_match = re.search(
-    #        rf"\b(?:BUY|SELL)\s+NOW\b"
-    #        rf"[^\d\r\n]*?{entry_prices}",
-    #        t,
-    #        re.I,
-    #    )
+    # BUY GOLD / SELL GOLD followed by an entry range.
+    # Supports:
+    # Buy Gold @5075-5065
+    # Buy Gold@5075-5065
+    # Sell Gold@5100-5110
+    # BUY XAUUSD@5075-5065
 
-    #    if entry_match:
-    #        entry = select_entry(
-    #            entry_match.group("first"),
-    #            entry_match.group("second"),
-    #        )
-    #        order_type = "Market"
+    if entry is None:
+        entry_match = re.search(
+            rf"\b(BUY|SELL)\s+"
+            rf"(?:GOLD|XAUUSD|XAU\s*/\s*USD)\b"
+            rf"\s*[@:]?\s*"
+            rf"{entry_prices}",
+            t,
+            re.I,
+        )
 
+        if entry_match:
+            entry_side = entry_match.group(1).upper()
 
+            if entry_side != side:
+                logging.warning(
+                    "Direction mismatch in entry: %r",
+                    text[:180]
+                )
+                return None
+
+            entry = select_entry(
+                entry_match.group("first"),
+                entry_match.group("second"),
+            )
+
+            order_type = "Market"
+
+   
     # Stop loss: allow emojis between SL and the price.
     sl_match = re.search(
         rf"\b(?:SL|STOP\s*LOSS)\b"
@@ -449,29 +478,57 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
     sl = float(sl_match.group(1)) if sl_match else None
 
     # Take-profit targets.
+    #
     # Supports:
+    # TP: 4415
+    # 🥇TP: 4415
+    # 🥈TP: 4380
     # TP1: 4150
     # TP1️⃣: 4150
     # TP:1️⃣: 4150
-    # TP2️⃣: 4189
     # TP ➡️ 3998
+    #
+    # TP:OPEN is ignored.
+    # Each TP is extracted from its own line to prevent
+    # accidentally capturing the SL price.
 
-    target_pattern = (
-        rf"\b(?:TP|TARGET|TAKE\s*PROFIT)(?![A-Z])"
-        rf"\s*:?\s*"
-        rf"(?:[1-6](?:\ufe0f?\u20e3)?(?=\s*:|\s*\ufe0f?\u20e3))?"
-        rf"\s*:?\s*"
-        rf"[^0-9]*?({price})"
+    tp_label_pattern = re.compile(
+        r"\b(?:TP|TARGET|TAKE\s*PROFIT)(?![A-Z])",
+        re.I
     )
 
-    targets = [
-        float(match.group(1))
-        for match in re.finditer(
+    tp_index_pattern = (
+        r"(?:\s*:?\s*"
+        r"(?:[1-6](?=\s*:|\s*\ufe0f?\u20e3)|[①②③④⑤⑥])"
+        r"(?:\ufe0f?\u20e3)?\s*:?)?"
+    )
+
+    target_pattern = (
+        r"\b(?:TP|TARGET|TAKE\s*PROFIT)(?![A-Z])"
+        + tp_index_pattern
+        + rf"[^0-9]*?({price})(?![\d.])"
+    )
+
+    targets = []
+
+    for line in t.splitlines():
+
+        # Ignore lines without TP labels.
+        if not tp_label_pattern.search(line):
+            continue
+
+        # Ignore open-ended targets.
+        if re.search(r"\b(?:OPEN|RUNNER)\b", line, re.I):
+            continue
+
+        target_match = re.search(
             target_pattern,
-            t,
-            re.I,
+            line,
+            re.I
         )
-    ]
+
+        if target_match:
+            targets.append(float(target_match.group(1)))
 
    
     if entry is None or sl is None or not targets:
@@ -627,7 +684,7 @@ def get_rates(start: datetime, end: datetime) -> pd.DataFrame:
 
         # Convert MT5 timestamps to datetime.
         # df["time"] = pd.to_datetime(df["time"], unit="s")
-        # df["time"] = pd.to_datetime(df["time"], unit="s").dt.tz_localize("Etc/GMT-3")
+        df["time"] = pd.to_datetime(df["time"], unit="s").dt.tz_localize("Etc/GMT-3")
 
         return df.sort_values("time").reset_index(drop=True)
     finally:
@@ -692,6 +749,22 @@ def evaluate_target(signal, bars: pd.DataFrame, target: float | None) -> tuple[s
     return ("Open at end" if filled else "Pending"), None
 
 
+def candle_body_touches_entry(entry: float, bar) -> bool:
+    """
+    Return True only when the candle body touches the entry price.
+
+    Candle body = range between Open and Close.
+    Candle shadow/wick = range between High/Low and body.
+
+    A wick-only touch does NOT activate the entry.
+    """
+
+    body_high = max(float(bar.open), float(bar.close))
+    body_low = min(float(bar.open), float(bar.close))
+
+    return body_low <= entry <= body_high
+
+
 def evaluate_signal(signal) -> dict:
     """Evaluate each TP independently.
 
@@ -744,27 +817,48 @@ def evaluate_signal(signal) -> dict:
 
     results = [None] * 6
 
+    # Wait for candle BODY to touch the entry.
+    # A wick-only touch does not activate the trade.
     filled = False
 
     for bar in bars.itertuples(index=False):
 
-        # Check entry activation.
+                # Check entry activation.
         if not filled:
 
-            if is_market:
-                entry_touched = bar.low <= entry <= bar.high
+            # Check both wick touch and candle-body touch.
+            wick_touched = (
+                bar.low <= entry <= bar.high
+            )
 
-            elif direction.endswith("stop"):
+            body_touched = candle_body_touches_entry(
+                entry,
+                bar
+            )
 
-                # Reject a pending Stop order if the first available
-                # candle has already opened beyond its entry price.
+            # Record wick-only touches without activating the entry.
+            if wick_touched and not body_touched:
+                print(
+                    f"{bar.time} | ENTRY WICK-ONLY TOUCH | "
+                    f"O={bar.open} H={bar.high} "
+                    f"L={bar.low} C={bar.close} | "
+                    f"NOT FILLED"
+                )
+
+            # Pending Stop order: retain existing gap protection.
+            if direction.endswith("stop"):
+
                 if is_buy and bar.open > entry:
                     results = [
                         ("No Take", 0.0) if target is not None
                         else ("N/A", None)
                         for target in targets
                     ]
-                    print(f"{bar.time} | Buy Stop already passed at open | NO TAKE")
+
+                    print(
+                        f"{bar.time} | Buy Stop already passed "
+                        "| NO TAKE"
+                    )
                     break
 
                 if not is_buy and bar.open < entry:
@@ -773,21 +867,23 @@ def evaluate_signal(signal) -> dict:
                         else ("N/A", None)
                         for target in targets
                     ]
-                    print(f"{bar.time} | Sell Stop already passed at open | NO TAKE")
+
+                    print(
+                        f"{bar.time} | Sell Stop already passed "
+                        "| NO TAKE"
+                    )
                     break
 
-                entry_touched = (
-                    bar.high >= entry if is_buy else bar.low <= entry
-                )
-
             elif direction.endswith("limit"):
-                entry_touched = (
-                    bar.low <= entry if is_buy else bar.high >= entry
-                )
+                pass
 
-            else:
+            elif not is_market:
                 continue
 
+            # All order types require BODY contact with entry.
+            entry_touched = body_touched
+
+            
             hit_sl_before_entry = (
                 bar.low <= sl if is_buy else bar.high >= sl
             )
