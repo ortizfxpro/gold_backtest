@@ -1,5 +1,4 @@
 """Starter XAUUSD Telegram signal backtester.
-
 IMPORTANT: This is a starter template. Adapt parse_signal() to the channel's exact
 message format and validate outcomes against your manual spreadsheet before use.
 It does not place trades or send orders.
@@ -384,7 +383,10 @@ def correct_final_tp_typo(
 def parse_signal(text: str, message_date: datetime) -> dict | None:
     """Parse XAUUSD market, stop, and limit signals."""
 
-    t = normalize_instrument_symbols(text).upper().replace(",", "")
+    t = normalize_tp_number_symbols(
+    normalize_instrument_symbols(text)
+    ).upper().replace(",", "")
+
     t = re.sub(r"[ \t]+", " ", t)
 
     # Accept XAUUSD or GOLD.
@@ -404,14 +406,15 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
     side = direction_match.group(1)
 
     # Match the message against the Word document format library.
+    # A failed format match should NOT prevent regex extraction.
+
     format_match = match_signal_format(text)
 
     if format_match is None:
         logging.warning(
-            "Message rejected: no documented format matched. %r",
+            "Signal format not documented, but continuing with regex parsing: %r",
             text[:180]
         )
-        return None
 
     # Identify the order type and entry price.
     entry = None
@@ -421,15 +424,49 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
 
     entry_prices = (
     rf"(?P<first>{price})"
-    rf"(?:\s*(?:-|–|—|/|\bTO\b)\s*(?P<second>{price}))?"
-    )
-    
+    rf"(?:\s*(?:-|–|—|/|_|\bTO\b)\s*"
+    rf"(?P<second>\d{{1,5}}(?:\.\d+)?))?"
+)
+
     def select_entry(first, second=None):
-        prices = [float(first)]
+        first_value = float(first)
+        prices = [first_value]
 
         if second is not None:
-            prices.append(float(second))
+            second_value = float(second)
 
+            # Expand abbreviated ranges such as:
+            # 4134_37 -> 4134-4137
+            # 4082_86 -> 4082-4086
+            # 3998_05 -> 3998-4005
+            if "." not in first and "." not in second:
+                first_digits = first
+                second_digits = second
+
+                if len(second_digits) < len(first_digits):
+                    scale = 10 ** len(second_digits)
+
+                    first_int = int(first_digits)
+
+                    candidate = (
+                        (first_int // scale) * scale
+                        + int(second_digits)
+                    )
+
+                    difference = candidate - first_int
+
+                    # Handle crossing a hundred or other digit boundary.
+                    if difference < -(scale / 2):
+                        candidate += scale
+                    elif difference > (scale / 2):
+                        candidate -= scale
+
+                    second_value = float(candidate)
+
+            prices.append(second_value)
+
+        # BUY selects the lower endpoint.
+        # SELL selects the higher endpoint.
         return min(prices) if side == "BUY" else max(prices)
 
     # Buy Stop, Sell Stop, Buy Limit, Sell Limit.
@@ -569,20 +606,30 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
     # accidentally capturing the SL price.
 
     tp_label_pattern = re.compile(
-        r"\b(?:TP|TARGET|TAKE\s*PROFIT)(?![A-Z])",
-        re.I
-    )
+    r"\b(?:TP|TARGET|TAKE\s*PROFIT)(?![A-Z])",
+    re.I
+)
+
+    # Recognize a TP index only when it has a clear separator
+    # after the digit, such as a colon, parenthesis, or keycap emoji.
+    #
+    # TP 4038       -> 4038 is the price, NOT TP index 4
+    # TP1: 4150     -> 1 is the TP index
+    # TP 1: 4150    -> 1 is the TP index
+    # TP 1 (4086)   -> 1 is the TP index
+    # TP1️⃣: 4150   -> 1 is the TP index
 
     tp_index_pattern = (
         r"(?:\s*:?\s*"
-        r"(?:[1-6](?=\s*:|\s*\ufe0f?\u20e3)|[①②③④⑤⑥])"
-        r"(?:\ufe0f?\u20e3)?\s*:?)?"
+        r"[1-6](?=\s*(?::|\(|\ufe0f?\u20e3))"
+        r"(?:\ufe0f?\u20e3)?"
+        r"\s*:?)?"
     )
 
     target_pattern = (
         r"\b(?:TP|TARGET|TAKE\s*PROFIT)(?![A-Z])"
         + tp_index_pattern
-        + rf"[^0-9]*?({price})(?![\d.])"
+        + rf"[^\d]*?({price})(?![\d.])"
     )
 
     targets = []
@@ -659,7 +706,9 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
         "direction": direction,
         "entry": entry,
         "sl": sl,
-        "matched_format": format_match["name"],
+        "matched_format": (
+            format_match["name"] if format_match else "Unmatched"
+        ),
         **tp_values,
     }
 
@@ -1261,7 +1310,14 @@ async def main():
         raise RuntimeError("Set TELEGRAM_API_ID and TELEGRAM_API_HASH in .env first.")
     client = TelegramClient(str(ROOT / "telegram_session"), int(api_id), api_hash)
     await client.start()  # First run asks for your Telegram phone/login code.
-    entity = await client.get_entity(CHANNEL)
+    entity = await client.get_entity(CHANNEL)   
+
+    logging.info("Configured channel: %s", CHANNEL)
+    logging.info("Resolved channel title: %s", getattr(entity, "title", None))
+    logging.info("Resolved channel username: %s", getattr(entity, "username", None))
+    logging.info("Resolved channel ID: %s", getattr(entity, "id", None))
+
+
     chat_id = getattr(entity, "id", CHANNEL)
 
     logging.info("Importing accessible historical messages from %s", CHANNEL)
