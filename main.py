@@ -425,7 +425,7 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
 
     # Identify BUY or SELL, including compact formats such as BUY4300.
     direction_match = re.search(
-        r"\b(BUY|SELL)(?=\s|@|[-+]?\d)",
+        r"\b(BUY|SELL)(?=\s|@|[.,:;]|[-+]?\d)",
         t
     )
 
@@ -564,7 +564,7 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
         entry_match = re.search(
             rf"\b(?:XAUUSD|GOLD)\b\s*"
             rf"\s*[:.,]?\s*"
-            rf"(?:BUY|SELL)\s*"
+            rf"(?:BUY|SELL)\s*[:.,]?\s*"
             rf"@?\s*"
             rf"{entry_prices}",
             t,
@@ -616,12 +616,14 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
 
    
     # Stop loss: allow emojis between SL and the price.
+
     sl_match = re.search(
-        rf"\b(?:SL|STOP\s*LOSS)\b"
-        rf"[^\d\r\n]*?({price})",
+        rf"\b(?:SL|STOP\s*LOSS)(?![A-Z])"
+        rf"\s*[:.]?\s*({price})(?![\d.])",
         t,
         re.I,
     )
+
     sl = float(sl_match.group(1)) if sl_match else None
 
     
@@ -672,7 +674,7 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
         r"\b(?:TP|TARGET|TAKE\s*PROFIT)(?![A-Z])"
         r"\s*:?\s*"
         r"(?:[1-6]\s*[:(]\s*)?"
-        rf"[^\d]*?({price})(?![\d.])"
+        rf"({price})(?![\d.])"
     )
 
 
