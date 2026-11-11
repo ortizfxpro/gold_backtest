@@ -45,7 +45,8 @@ OUTPUT_XLSX = Path(
     )
 )
 TEMPLATE_XLSX = Path(os.getenv("TEMPLATE_XLSX", "")) if os.getenv("TEMPLATE_XLSX") else None
-SHEET_NAME = os.getenv("SHEET_NAME", "Result")
+HISTORY_SHEET_NAME = "History"
+RESULT_SHEET_NAME = "Result"
 CHANNEL = os.getenv("TELEGRAM_CHANNEL", "https://t.me/Goldxion")
 MT5_SYMBOL = os.getenv("MT5_SYMBOL", "XAUUSD")
 # ICMarketsSC broker server time offset
@@ -125,18 +126,28 @@ def normalize_instrument_symbols(text: str) -> str:
     """
     Normalize alternative XAUUSD spellings.
 
+    XAUUUSD -> XAUUSD
     XAU/USD -> XAUUSD
     XAU / USD -> XAUUSD
     """
 
     text = (text or "").replace("\u00A0", " ")
 
-    return re.sub(
+    text = re.sub(
+        r"\bXAUU?USD\b",
+        "XAUUSD",
+        text,
+        flags=re.I
+    )
+
+    text = re.sub(
         r"\bXAU\s*/\s*USD\b",
         "XAUUSD",
         text,
         flags=re.I
     )
+
+    return text
 
 
 
@@ -164,6 +175,14 @@ def normalize_signal_text(text: str) -> str:
 
     # Normalize whitespace.
     text = re.sub(r"\s+", " ", text)
+
+    # Separate instrument and direction when they are joined.
+    text = re.sub(
+        r"\b(GOLD|XAUUSD)(?=(?:BUY|SELL)\b)",
+        r"\1 ",
+        text,
+        flags=re.I
+    )
 
     return text.strip()
 
@@ -249,7 +268,7 @@ def match_signal_format(message: str):
     # Basic signal requirements.
     has_instrument = bool(
         re.search(
-            r"\b(?:XAUUSD|GOLD)\b",
+            r"\b(?:XAUU?USD|GOLD)\b",
             check_message,
             re.I
         )
@@ -535,14 +554,16 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
             )
             order_type = "Market"
 
-        # BUY / SELL followed directly by an entry price.
+    # BUY / SELL followed directly by an entry price.
     # Supports:
     # XAUUSD SELL 4002
     # GOLD BUY 3950
     # #XAUUSD Buy4300
+    
     if entry is None:
         entry_match = re.search(
             rf"\b(?:XAUUSD|GOLD)\b\s*"
+            rf"\s*[:.,]?\s*"
             rf"(?:BUY|SELL)\s*"
             rf"@?\s*"
             rf"{entry_prices}",
@@ -1214,28 +1235,514 @@ def evaluate_signal(signal) -> dict:
     return {"results": results, "filled": filled}
 
 
+# ============================================================
+# MONTHLY RESULT SHEET GENERATION
+# ============================================================
+
+from collections import defaultdict
+
+
+def get_month_key(value):
+    """Convert YYYY.MM or YYYY/MM into YYYY/MM."""
+
+    if value is None:
+        return None
+
+    match = re.match(
+        r"^\s*(\d{4})[./-](\d{1,2})",
+        str(value)
+    )
+
+    if not match:
+        return None
+
+    year = int(match.group(1))
+    month = int(match.group(2))
+
+    if not 1 <= month <= 12:
+        return None
+
+    return f"{year:04d}/{month:02d}"
+
+
+def calculate_month_loss_streak(rows, status_col):
+    """
+    Calculate maximum consecutive losses.
+
+    Loss    = Increase streak.
+    Win     = Reset streak.
+    No Take = Ignore without resetting.
+
+    Only display streaks of 2 or more.
+    """
+
+    current_streak = 0
+    maximum_streak = 0
+
+    for row in rows:
+
+        status = row[status_col - 1]
+
+        if not isinstance(status, str):
+            continue
+
+        status = status.strip().lower()
+
+        if status == "loss":
+
+            current_streak += 1
+
+            maximum_streak = max(
+                maximum_streak,
+                current_streak
+            )
+
+        elif status == "win":
+
+            current_streak = 0
+
+    return (
+        maximum_streak
+        if maximum_streak >= 2
+        else None
+    )
+
+
+def calculate_month_metrics(rows, pnl_col, status_col):
+
+    total_signals = len(rows)
+
+    cumulative_pnl = 0.0
+    cumulative_values = []
+
+    for row in rows:
+
+        pnl = row[pnl_col - 1]
+
+        if isinstance(pnl, (int, float)) and not isinstance(pnl, bool):
+
+            cumulative_pnl += float(pnl)
+
+            cumulative_values.append(
+                cumulative_pnl
+            )
+
+    if cumulative_values:
+
+        profit_max = max(cumulative_values)
+        loss_max = min(cumulative_values)
+
+    else:
+
+        profit_max = None
+        loss_max = None
+
+    result = cumulative_pnl
+
+    loss_streak = calculate_month_loss_streak(
+        rows,
+        status_col
+    )
+
+    return {
+        "total_signals": total_signals,
+        "profit_max": round(profit_max, 2) if profit_max is not None else None,
+        "loss_max": round(loss_max, 2) if loss_max is not None else None,
+        "result": round(result, 2),
+        "loss_streak": loss_streak,
+    }
+
+
+def update_monthly_result_sheet(wb, history_ws):
+
+    """
+    Generate/update the Result sheet using monthly
+    History data.
+
+    TP3: O / P
+    TP4: R / S
+    TP5: U / V
+    """
+
+    if RESULT_SHEET_NAME in wb.sheetnames:
+
+        result_ws = wb[RESULT_SHEET_NAME]
+
+    else:
+
+        result_ws = wb.create_sheet(
+            RESULT_SHEET_NAME
+        )
+
+    # --------------------------------------------------------
+    # REPORT LAYOUT
+    # --------------------------------------------------------
+
+    sections = [
+        {
+            "title": "TP1",
+            "start_col": 2,
+            "pnl_col": 9,
+            "status_col": 10,
+        },
+        {
+            "title": "TP2",
+            "start_col": 9,
+            "pnl_col": 12,
+            "status_col": 13,
+        },
+        {
+            "title": "TP3",
+            "start_col": 16,
+            "pnl_col": 15,
+            "status_col": 16,
+        },
+        {
+            "title": "TP4",
+            "start_col": 23,
+            "pnl_col": 18,
+            "status_col": 19,
+        },
+        {
+            "title": "TP5",
+            "start_col": 30,
+            "pnl_col": 21,
+            "status_col": 22,
+        },
+        {
+            "title": "TP6",
+            "start_col": 37,
+            "pnl_col": 24,
+            "status_col": 25,
+        },
+    ]
+
+    headers = [
+        "Month",
+        "Total Signals",
+        "Profit (Max)",
+        "Loss (Max)",
+        "Result",
+        "Loss Streak",
+    ]
+
+    for section in sections:
+
+        start_col = section["start_col"]
+
+        result_ws.cell(
+            2,
+            start_col,
+            section["title"]
+        )
+
+        for offset, header in enumerate(headers):
+
+            result_ws.cell(
+                4,
+                start_col + offset,
+                header
+            )
+
+    # --------------------------------------------------------
+    # GROUP HISTORY BY MONTH
+    # --------------------------------------------------------
+
+    monthly_data = defaultdict(list)
+
+    for row in history_ws.iter_rows(
+        min_row=2,
+        values_only=True
+    ):
+
+        month = get_month_key(row[1])
+
+        if month is None:
+            continue
+
+        monthly_data[month].append(row)
+
+    # Sort each month's signals chronologically.
+    for month in monthly_data:
+
+        monthly_data[month].sort(
+            key=lambda row: (
+                str(row[2] or ""),
+                str(row[3] or "")
+            )
+        )
+
+    sorted_months = sorted(
+        monthly_data.keys()
+    )
+
+    # --------------------------------------------------------
+    # CLEAR OLD RESULT VALUES
+    # Preserve existing formatting.
+    # --------------------------------------------------------
+
+    for row_num in range(5, result_ws.max_row + 1):
+        for col in range(2, 43):
+            result_ws.cell(row_num, col).value = None
+
+    # --------------------------------------------------------
+    # CALCULATE EACH TP SECTION
+    # --------------------------------------------------------
+
+    for section in sections:
+
+        start_col = section["start_col"]
+
+        pnl_col = section["pnl_col"]
+
+        status_col = section["status_col"]
+
+        for index, month in enumerate(sorted_months):
+
+            output_row = 5 + index
+
+            # Copy formatting from the template's first
+            # data row when additional rows are required.
+            if output_row > 5:
+
+                for col in range(
+                    start_col,
+                    start_col + 6
+                ):
+
+                    source = result_ws.cell(
+                        5,
+                        col
+                    )
+
+                    target = result_ws.cell(
+                        output_row,
+                        col
+                    )
+
+                    if source.has_style:
+
+                        target._style = copy(
+                            source._style
+                        )
+
+                    target.number_format = (
+                        source.number_format
+                    )
+
+                    target.alignment = copy(
+                        source.alignment
+                    )
+
+            rows = monthly_data[month]
+
+            metrics = calculate_month_metrics(
+                rows,
+                pnl_col,
+                status_col
+            )
+
+            values = [
+                month,
+                metrics["total_signals"],
+                metrics["profit_max"],
+                metrics["loss_max"],
+                metrics["result"],
+                metrics["loss_streak"],
+            ]
+
+            for offset, value in enumerate(values):
+
+                result_ws.cell(
+                    output_row,
+                    start_col + offset,
+                    value
+                )
+
+    logging.info(
+        "Monthly Result sheet updated | Months: %d | Signals: %d",
+        len(sorted_months),
+        sum(len(rows) for rows in monthly_data.values())
+    )
+
+
+def refresh_monthly_result_file():
+
+    """
+    Refresh the Result sheet after all signals
+    have been processed.
+    """
+
+    if not OUTPUT_XLSX.exists():
+        return
+
+    wb = load_workbook(OUTPUT_XLSX)
+
+    try:
+
+        if HISTORY_SHEET_NAME not in wb.sheetnames:
+
+            raise ValueError(
+                "History sheet not found."
+            )
+
+        history_ws = wb[HISTORY_SHEET_NAME]
+
+        update_monthly_result_sheet(
+            wb,
+            history_ws
+        )
+
+        temp_path = OUTPUT_XLSX.with_name(
+            OUTPUT_XLSX.stem + "_result_temp.xlsx"
+        )
+
+        wb.save(temp_path)
+
+    finally:
+
+        wb.close()
+
+    os.replace(
+        temp_path,
+        OUTPUT_XLSX
+    )
+
+    logging.info(
+        "Monthly Result sheet saved successfully: %s",
+        OUTPUT_XLSX
+    )
+
+
+
+
+
 def ensure_workbook():
+
+    using_template = False
+
     if OUTPUT_XLSX.exists():
+
         wb = load_workbook(OUTPUT_XLSX)
-        ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
-        for col, value in enumerate(HEADERS, 1):
-            ws.cell(1, col, value)
-        return wb, ws
-    if TEMPLATE_XLSX and TEMPLATE_XLSX.exists():
+
+    elif TEMPLATE_XLSX and TEMPLATE_XLSX.exists():
+
         wb = load_workbook(TEMPLATE_XLSX)
-        ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
-        for col, value in enumerate(HEADERS, 1):
-                    ws.cell(1, col, value)
-        return wb, ws
-    from openpyxl import Workbook
-    wb = Workbook()
-    ws = wb.active
-    ws.title = SHEET_NAME
+        using_template = True
+
+    else:
+
+        from openpyxl import Workbook
+
+        wb = Workbook()
+
+    # --------------------------------------------------------
+    # FIND OR CREATE HISTORY SHEET
+    # --------------------------------------------------------
+
+    if HISTORY_SHEET_NAME in wb.sheetnames:
+
+        ws = wb[HISTORY_SHEET_NAME]
+
+    elif RESULT_SHEET_NAME in wb.sheetnames:
+
+        old_ws = wb[RESULT_SHEET_NAME]
+
+        # Migrate an older workbook where Result was
+        # being used as the signal-history sheet.
+        if (
+            old_ws["A1"].value == "Year"
+            and old_ws["B1"].value == "Month"
+        ):
+
+            old_ws.title = HISTORY_SHEET_NAME
+            ws = old_ws
+
+        else:
+
+            ws = wb.create_sheet(
+                HISTORY_SHEET_NAME,
+                0
+            )
+
+    else:
+
+        ws = wb.create_sheet(
+            HISTORY_SHEET_NAME,
+            0
+        )
+
+    # --------------------------------------------------------
+    # CLEAR TEMPLATE HISTORY DATA
+    # Keep formatting and headers.
+    # --------------------------------------------------------
+
+    if using_template:
+
+        for row_num in range(
+            2,
+            ws.max_row + 1
+        ):
+
+            for col in range(
+                1,
+                len(HEADERS) + 1
+            ):
+
+                ws.cell(
+                    row_num,
+                    col
+                ).value = None
+
+    # --------------------------------------------------------
+    # ENSURE HISTORY HEADERS
+    # --------------------------------------------------------
+
     for col, value in enumerate(HEADERS, 1):
-        ws.cell(1, col, value)
-        for col, value in enumerate(HEADERS, 1):
-                    ws.cell(1, col, value)
+
+        ws.cell(
+            1,
+            col,
+            value
+        )
+
+    # --------------------------------------------------------
+    # ENSURE RESULT SHEET
+    # --------------------------------------------------------
+
+    if RESULT_SHEET_NAME not in wb.sheetnames:
+
+        wb.create_sheet(
+            RESULT_SHEET_NAME
+        )
+
     return wb, ws
+
+
+def find_last_history_row(ws):
+
+    """
+    Find the last row containing actual signal data.
+
+    This avoids problems when a template has formatting
+    extending far below the actual data.
+    """
+
+    for row_num in range(
+        ws.max_row,
+        1,
+        -1
+    ):
+
+        if any(
+            ws.cell(row_num, col).value is not None
+            for col in range(1, len(HEADERS) + 1)
+        ):
+
+            return row_num
+
+    return 1
+
 
 
 
@@ -1253,7 +1760,7 @@ def write_signal_to_excel(row_data, signal_key):
         row_num = record["excel_row"] if record and record["excel_row"] else None
 
         if row_num is None:
-            row_num = ws.max_row + 1
+            row_num = find_last_history_row(ws) + 1
 
             # Copy formatting from previous row.
             if row_num > 2:
@@ -1290,7 +1797,7 @@ def write_signal_to_excel(row_data, signal_key):
 
         # Validate temporary workbook.
         check_wb = load_workbook(temp_path, read_only=True)
-        check_ws = check_wb[SHEET_NAME]
+        check_ws = check_wb[HISTORY_SHEET_NAME]
 
         if check_ws.max_row < row_num:
             raise RuntimeError("Excel validation failed: missing data rows.")
@@ -1356,17 +1863,47 @@ def process_signal(signal):
     )
 
 
+
 def process_all_saved():
+
     con = db_connect()
-    signals = con.execute("SELECT * FROM signals ORDER BY message_date, message_id").fetchall()
-    # signals = con.execute("SELECT * FROM signals ORDER BY message_date DESC, message_id DESC LIMIT 10").fetchall()
+
+    signals = con.execute(
+        """
+        SELECT *
+        FROM signals
+        ORDER BY message_date, message_id
+        """
+    ).fetchall()
 
     con.close()
+
     for signal in signals:
+
         try:
+
             process_signal(dict(signal))
+
         except Exception:
-            logging.exception("Failed to process Telegram message %s", signal["message_id"])
+
+            logging.exception(
+                "Failed to process Telegram message %s",
+                signal["message_id"]
+            )
+
+    # Generate monthly report after all signals
+    # have been written to the History sheet.
+
+    try:
+
+        refresh_monthly_result_file()
+
+    except Exception:
+
+        logging.exception(
+            "Failed to update monthly Result sheet"
+        )
+
 
 
 async def main():
