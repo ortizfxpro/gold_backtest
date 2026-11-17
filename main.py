@@ -22,6 +22,11 @@ from telethon import TelegramClient, events
 from difflib import SequenceMatcher
 from docx import Document
 
+from signal_recognition import (
+    load_signal_formats,
+    match_signal_format,
+)
+
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -30,10 +35,10 @@ ROOT = Path(__file__).resolve().parent
 SIGNAL_FORMATS_DOCX = ROOT / "signal_formats.docx"
 
 # Minimum similarity required to recognize a documented format.
-FORMAT_MATCH_THRESHOLD = 0.68
+# FORMAT_MATCH_THRESHOLD = 0.68
 
-_SIGNAL_FORMATS_CACHE = []
-_SIGNAL_FORMATS_MTIME = None
+# _SIGNAL_FORMATS_CACHE = []
+# _SIGNAL_FORMATS_MTIME = None
 
 DB_PATH = ROOT / os.getenv(
     "DB_PATH", "goldxion.sqlite3"
@@ -151,7 +156,7 @@ def normalize_instrument_symbols(text: str) -> str:
 
 
 
-def normalize_signal_text(text: str) -> str:
+# def normalize_signal_text(text: str) -> str:
     """
     Normalize Telegram messages for documented format comparison.
     """
@@ -187,7 +192,7 @@ def normalize_signal_text(text: str) -> str:
     return text.strip()
 
 
-def load_signal_formats(force_reload=False):
+# def load_signal_formats(force_reload=False):
     """
     Load signal examples from signal_formats.docx.
 
@@ -254,7 +259,7 @@ def load_signal_formats(force_reload=False):
         return []
 
 
-def match_signal_format(message: str):
+# def match_signal_format(message: str):
 
     formats = load_signal_formats()
 
@@ -425,7 +430,7 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
 
     # Identify BUY or SELL, including compact formats such as BUY4300.
     direction_match = re.search(
-        r"\b(BUY|SELL)(?=\s|@|[.,:;]|[-+]?\d)",
+        r"\b(BUY|SELL)(?=\s|@|[-+]?\d)",
         t
     )
 
@@ -564,7 +569,7 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
         entry_match = re.search(
             rf"\b(?:XAUUSD|GOLD)\b\s*"
             rf"\s*[:.,]?\s*"
-            rf"(?:BUY|SELL)\s*[:.,]?\s*"
+            rf"(?:BUY|SELL)\s*"
             rf"@?\s*"
             rf"{entry_prices}",
             t,
@@ -616,14 +621,12 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
 
    
     # Stop loss: allow emojis between SL and the price.
-
     sl_match = re.search(
-        rf"\b(?:SL|STOP\s*LOSS)(?![A-Z])"
-        rf"\s*[:.]?\s*({price})(?![\d.])",
+        rf"\b(?:SL|STOP\s*LOSS)\b"
+        rf"[^\d\r\n]*?({price})",
         t,
         re.I,
     )
-
     sl = float(sl_match.group(1)) if sl_match else None
 
     
@@ -674,7 +677,7 @@ def parse_signal(text: str, message_date: datetime) -> dict | None:
         r"\b(?:TP|TARGET|TAKE\s*PROFIT)(?![A-Z])"
         r"\s*:?\s*"
         r"(?:[1-6]\s*[:(]\s*)?"
-        rf"({price})(?![\d.])"
+        rf"[^\d]*?({price})(?![\d.])"
     )
 
 
